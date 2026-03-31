@@ -1,0 +1,5 @@
+{
+  "name": "QuizGenie",
+  "description": "A structured quiz generator that follows a strict 5-step process to create questions from study materials.",
+  "requestFramePermissions": []
+}

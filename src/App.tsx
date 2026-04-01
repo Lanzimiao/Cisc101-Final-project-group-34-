@@ -6,6 +6,9 @@
 import React, { useState, useRef } from 'react';
 import { GoogleGenAI, Type } from "@google/genai";
 import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import { 
   BookOpen, 
   Loader2, 
@@ -176,7 +179,7 @@ export default function App() {
       Now perform:
       Step 3: Generate basic (easy) questions based on these concepts.
       Step 4: Generate more difficult questions based on the same concepts.
-      Step 5: Format the output as a numbered list.
+      Step 5: Format the output strictly according to the rules below.
       
       RULES:
       - Subject: ${step1Data.subject}
@@ -188,6 +191,21 @@ export default function App() {
       - Ensure difficulty progression is clear.
       - Use clear and simple wording.
       - Based ONLY on the provided materials.
+      
+      STRICT FORMATTING RULES:
+      - Each question must start with Q[number]: (e.g., Q1:, Q2:).
+      - Output must be a numbered list where each item starts with Q[number]:.
+      - Each question must be separated by exactly ONE blank line.
+      - Each question must be on its own line.
+      - All math expressions must use LaTeX.
+      - Inline math: $...$
+      - Display math: $$...$$
+      - No plain text math (e.g., x^2, sqrt(x)).
+      - No code blocks for math.
+      - Follow formatting strictly.
+      - Do not merge questions.
+      - Do not remove blank lines.
+      - Do not compress spacing.
       
       ${input ? `Text Materials: ${input}` : 'Materials are in the attached file.'}
       
@@ -233,7 +251,7 @@ export default function App() {
               History
             </button>
             <div className="h-4 w-[1px] bg-black/10" />
-            <span>v1.1</span>
+            <span>v1.3</span>
           </div>
         </div>
       </header>
@@ -424,7 +442,12 @@ export default function App() {
                   </div>
                   <div className="p-8 prose prose-orange max-w-none">
                     <div className="text-lg leading-relaxed text-black/80">
-                      <ReactMarkdown>{quizOutput}</ReactMarkdown>
+                      <ReactMarkdown 
+                        remarkPlugins={[remarkMath]} 
+                        rehypePlugins={[rehypeKatex]}
+                      >
+                        {quizOutput}
+                      </ReactMarkdown>
                     </div>
                   </div>
                   <div className="p-6 bg-black/5 border-t border-black/10 flex justify-end gap-3">

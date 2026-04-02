@@ -10,6 +10,8 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { 
+  MessageSquare,
+  Send,
   BookOpen, 
   Loader2, 
   CheckCircle2, 
@@ -58,8 +60,16 @@ export default function App() {
   const [questionType, setQuestionType] = useState<QuestionType | null>(null);
   const [showTypeSelection, setShowTypeSelection] = useState(false);
   const [history, setHistory] = useState<{input: string, output: string}[]>([]);
+  const [qaHistory, setQaHistory] = useState<{question: string, answer: string}[]>([]);
+  const [userQuestion, setUserQuestion] = useState('');
+  const [isAsking, setIsAsking] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const qaEndRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = () => {
+    qaEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
 
   const steps: QuizStep[] = [
     { id: 1, label: 'Analyze Material', status: currentStep >= 1 ? 'completed' : currentStep === 0 && isProcessing ? 'loading' : 'pending' },
@@ -96,7 +106,58 @@ export default function App() {
     setIsProcessing(true);
     setCurrentStep(0);
     setQuizOutput('');
+    setQaHistory([]);
     setShowTypeSelection(true);
+  };
+
+  const handleAskQuestion = async () => {
+    if (!userQuestion.trim() || isAsking) return;
+    
+    const question = userQuestion;
+    setUserQuestion('');
+    setIsAsking(true);
+    
+    try {
+      const model = "gemini-3-flash-preview";
+      const parts: any[] = [];
+      
+      if (file) {
+        parts.push({
+          inlineData: {
+            mimeType: file.mimeType,
+            data: file.base64
+          }
+        });
+      }
+      
+      const prompt = `
+        You are an expert tutor. Answer the user's question based ONLY on the provided study materials.
+        If the answer is not in the materials, say "I'm sorry, but that information is not covered in the provided study materials."
+        
+        Study Materials:
+        ${input ? input : 'Provided in the attached file.'}
+        
+        User Question: ${question}
+        
+        Answer concisely and use LaTeX for any math.
+      `;
+      
+      parts.push({ text: prompt });
+      
+      const response = await genAI.models.generateContent({
+        model,
+        contents: { parts },
+      });
+      
+      const answer = response.text || "I couldn't generate an answer.";
+      setQaHistory(prev => [...prev, { question, answer }]);
+      setTimeout(scrollToBottom, 100);
+    } catch (err) {
+      console.error(err);
+      setQaHistory(prev => [...prev, { question, answer: "Sorry, I encountered an error while answering your question." }]);
+    } finally {
+      setIsAsking(false);
+    }
   };
 
   const generateQuiz = async (selectedType: QuestionType) => {
@@ -119,11 +180,18 @@ export default function App() {
         });
       }
       
-      const promptText = `Analyze the provided study materials and:
-      1. Identify if it belongs to 'humanities' or 'sciences'.
-      2. Extract the key concepts as a list.
+      const promptText = `Follow this structured process strictly:
+      Step 1: Identify whether the subject belongs to humanities or sciences.
+      Step 2: Extract the key concepts from the study materials.
       
-      If the material is unclear, incomplete, contradictory or empty, respond ONLY with "CLARIFICATION_REQUIRED: [reason]".
+      VALIDATION RULES:
+      If the input study materials are unclear, incomplete, contradictory, or empty:
+      STOP and respond ONLY with a JSON object containing "clarification": "[reason]".
+      Do NOT make assumptions.
+      
+      CLASSIFICATION LOGIC:
+      - Humanities: Focus on concepts, interpretation, and explanations.
+      - Sciences: Focus on definitions, logical reasoning, and problem understanding.
       
       ${input ? `Text Materials: ${input}` : 'Material is provided in the attached file.'}`;
 
@@ -179,33 +247,65 @@ export default function App() {
       Now perform:
       Step 3: Generate basic (easy) questions based on these concepts.
       Step 4: Generate more difficult questions based on the same concepts.
-      Step 5: Format the output strictly according to the rules below.
+      Step 5: Format the output as a numbered list.
+      
+      FEW-SHOT EXAMPLES:
+      Example 1 (Humanities):
+      Input: The Renaissance was a cultural movement that emphasized humanism, art, and scientific inquiry.
+      Output:
+      Q1:
+      What was the Renaissance?
+
+      Q2:
+      What were the main features of the Renaissance?
+
+      Q3:
+      Why was humanism important during the Renaissance?
+
+      Example 2 (Humanities):
+      Input: The Western Roman Empire fell in 476 CE due to internal weaknesses and external invasions.
+      Output:
+      Q1:
+      What were the main causes of the fall of the Western Roman Empire?
+      A. Scientific discoveries and technological progress
+      B. Political instability, economic decline, and external invasions
+      C. Expansion of trade routes and economic growth
+      D. Religious unity and strong leadership
+
+      Example 3 (Sciences):
+      Input: The Cartesian product of two sets A and B is the set of all ordered pairs (a, b).
+      Output:
+      Q1:
+      If A = {1, 2} and B = {x, y}, list all elements of $A \times B$.
+
+      Example 4 (Sciences):
+      Input: Pseudocode uses structured steps to represent algorithms.
+      Output:
+      Q1:
+      Write pseudocode to calculate the sum of numbers from 1 to 5 using a loop.
+
+      DIFFICULTY CONTROL:
+      - Start with basic questions, then move to more difficult ones.
+      - Basic questions test definitions or direct understanding.
+      - Advanced questions require reasoning or application.
+      - Difficulty progression must be clear and not mixed.
       
       RULES:
       - Subject: ${step1Data.subject}
       - Question Type: ${selectedType}
-      - If humanities: focus on concepts, interpretation, and explanations.
-      - If sciences: focus on definitions, logical reasoning, and problem understanding.
-      - Start with basic, simple questions (definitions/direct understanding).
-      - Move to advanced questions (reasoning/application).
-      - Ensure difficulty progression is clear.
-      - Use clear and simple wording.
-      - Based ONLY on the provided materials.
-      
-      STRICT FORMATTING RULES:
-      - Each question must start with Q[number]: (e.g., Q1:, Q2:).
-      - Output must be a numbered list where each item starts with Q[number]:.
+      - Each question must start with Q[number]:
+      - The question content must follow on the next line after Q[number]:
       - Each question must be separated by exactly ONE blank line.
-      - Each question must be on its own line.
+      - Do not compress spacing.
+      - Do not merge questions.
+      - If the user shows confusion or requests help: Help users to understand how to solve the question.
+      
+      MATH FORMATTING RULES:
       - All math expressions must use LaTeX.
       - Inline math: $...$
       - Display math: $$...$$
-      - No plain text math (e.g., x^2, sqrt(x)).
+      - No plain text math.
       - No code blocks for math.
-      - Follow formatting strictly.
-      - Do not merge questions.
-      - Do not remove blank lines.
-      - Do not compress spacing.
       
       ${input ? `Text Materials: ${input}` : 'Materials are in the attached file.'}
       
@@ -251,7 +351,7 @@ export default function App() {
               History
             </button>
             <div className="h-4 w-[1px] bg-black/10" />
-            <span>v1.3</span>
+            <span>v1.5</span>
           </div>
         </div>
       </header>
@@ -450,6 +550,73 @@ export default function App() {
                       </ReactMarkdown>
                     </div>
                   </div>
+
+                  {/* Q&A Section */}
+                  <div className="border-t border-black/10 p-8 bg-orange-50/30">
+                    <h3 className="font-bold text-lg flex items-center gap-2 mb-6">
+                      <MessageSquare size={20} className="text-orange-500" />
+                      Ask about the material
+                    </h3>
+                    
+                    <div className="space-y-6 mb-8 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                      {qaHistory.length === 0 && !isAsking && (
+                        <p className="text-center text-black/30 py-8 italic">
+                          Have questions about the content? Ask them below.
+                        </p>
+                      )}
+                      {qaHistory.map((item, idx) => (
+                        <div key={idx} className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
+                          <div className="flex gap-3 justify-end">
+                            <div className="bg-orange-500 text-white px-4 py-2 rounded-2xl rounded-tr-none text-sm max-w-[80%] shadow-sm">
+                              {item.question}
+                            </div>
+                          </div>
+                          <div className="flex gap-3">
+                            <div className="w-8 h-8 rounded-xl bg-white border border-black/10 flex items-center justify-center flex-shrink-0 shadow-sm">
+                              <BrainCircuit size={18} className="text-orange-500" />
+                            </div>
+                            <div className="bg-white border border-black/10 px-4 py-3 rounded-2xl rounded-tl-none text-sm max-w-[85%] shadow-sm prose prose-sm prose-orange">
+                              <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                                {item.answer}
+                              </ReactMarkdown>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      {isAsking && (
+                        <div className="flex gap-3 animate-pulse">
+                          <div className="w-8 h-8 rounded-xl bg-white border border-black/10 flex items-center justify-center flex-shrink-0 shadow-sm">
+                            <BrainCircuit size={18} className="text-orange-500" />
+                          </div>
+                          <div className="bg-white border border-black/10 px-4 py-3 rounded-2xl rounded-tl-none text-sm shadow-sm flex items-center gap-2">
+                            <Loader2 size={14} className="animate-spin text-orange-500" />
+                            <span className="text-black/40">Thinking...</span>
+                          </div>
+                        </div>
+                      )}
+                      <div ref={qaEndRef} />
+                    </div>
+
+                    <div className="relative group">
+                      <input
+                        type="text"
+                        value={userQuestion}
+                        onChange={(e) => setUserQuestion(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleAskQuestion()}
+                        placeholder="Ask a follow-up question..."
+                        className="w-full pl-6 pr-14 py-4 bg-white border border-black/10 rounded-2xl shadow-sm focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 outline-none transition-all text-sm"
+                        disabled={isAsking}
+                      />
+                      <button
+                        onClick={handleAskQuestion}
+                        disabled={isAsking || !userQuestion.trim()}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-2.5 bg-black text-white rounded-xl hover:bg-orange-600 transition-all disabled:opacity-50 disabled:hover:bg-black"
+                      >
+                        {isAsking ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+                      </button>
+                    </div>
+                  </div>
+
                   <div className="p-6 bg-black/5 border-t border-black/10 flex justify-end gap-3">
                     <button 
                       onClick={copyToClipboard}
